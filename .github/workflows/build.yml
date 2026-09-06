@@ -71,7 +71,7 @@ jobs:
               'sha256': hashlib.sha256((site / 'index.html').read_bytes()).hexdigest()
           }
           (site / 'version.json').write_text(json.dumps(metadata, indent=2) + '\n')
-          (site / 'README.md').write_text('# Silicore Studio - GitHub Pages\n\nThis branch contains the verified standalone build from main. See version.json for source provenance.\n\nhttps://wieslawsoltes.github.io/SilicoreStudio/\n')
+          (site / 'README.md').write_text('# Silicore Studio - GitHub Pages\n\nVerified standalone build from main. See version.json for source provenance.\n\nhttps://wieslawsoltes.github.io/SilicoreStudio/\n')
           PY
       - name: Upload the verified website
         uses: actions/upload-artifact@v4
@@ -80,6 +80,11 @@ jobs:
           path: _site
           include-hidden-files: true
           if-no-files-found: error
+      - name: Package the GitHub Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
 
   publish:
     needs: build
@@ -89,8 +94,12 @@ jobs:
     permissions:
       contents: write
       pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Check out the publishing branch
+      - name: Check out the publishing mirror
         uses: actions/checkout@v4
         with:
           ref: gh-pages
@@ -100,7 +109,7 @@ jobs:
         with:
           name: silicore-site
           path: _site
-      - name: Update the publishing branch
+      - name: Update the publishing mirror
         shell: bash
         run: |
           cp _site/index.html _site/LICENSE _site/version.json _site/README.md deployment/
@@ -113,23 +122,26 @@ jobs:
             git commit -m "Publish Silicore Studio from ${GITHUB_SHA}"
             git push origin HEAD:gh-pages
           fi
-      - name: Request a Pages build
+      - name: Inspect the Pages publishing configuration
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          # GITHUB_TOKEN pushes do not trigger Pages automatically; request it explicitly.
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/pages/builds"
+        run: gh api "repos/${GITHUB_REPOSITORY}/pages" --jq '{html_url,build_type,source,status}'
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Deploy the verified artifact to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
       - name: Verify the live HTTPS deployment and content integrity
         env:
           SOURCE_SHA: ${{ github.sha }}
-          SITE_URL: https://wieslawsoltes.github.io/SilicoreStudio/
+          SITE_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
           python3 - <<'PY'
           import hashlib, json, os, time
           from pathlib import Path
           from urllib.request import Request, urlopen
           expected = json.loads(Path('_site/version.json').read_text())
-          base = os.environ['SITE_URL']
+          base = os.environ['SITE_URL'].rstrip('/') + '/'
           def get(path):
               request = Request(base + path, headers={'Cache-Control': 'no-cache', 'User-Agent': 'SilicoreStudio-CI'})
               with urlopen(request, timeout=20) as response:
