@@ -1,1 +1,6 @@
-{"name":"Silicore Studio","repository":"wieslawsoltes/SilicoreStudio","sourceCommit":"dbf667346e32c3d68d2b0713f21822337cf7745d","appBlob":"e2ae2c3635f5081cd879cad742fa1586abf4c370"}
+{
+  "name": "Silicore Studio",
+  "repository": "wieslawsoltes/SilicoreStudio",
+  "sourceCommit": "cfbaec1f7d38866a4eeb21154ed1a34331fbe5ea",
+  "sha256": "086b2ad5b9706ab72f208440b79df0d98e7c2118349e880ac1c23fa191c626e6"
+}
