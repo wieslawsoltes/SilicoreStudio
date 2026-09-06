@@ -35,6 +35,7 @@ jobs:
           if not Path('package.json').exists() and manifest.exists():
               meta = json.loads(manifest.read_text())
               packed = b''.join(Path('.bootstrap', part).read_bytes() for part in meta['parts'])
+              assert len(packed) == meta['size'], 'Transfer size mismatch'
               assert hashlib.sha256(packed).hexdigest() == meta['sha256'], 'Transfer checksum mismatch'
               files = json.loads(lzma.decompress(packed))
               for name, text in files.items():
@@ -78,29 +79,12 @@ jobs:
           for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:8765/ >/dev/null && break || sleep 1; done
           BROWSER=$(python3 -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
           python3 tests/browser_smoke.py --url http://127.0.0.1:8765 --browser "$BROWSER" --output test-results/browser
-          python3 - <<'PY'
-          from pathlib import Path
-          from playwright.sync_api import sync_playwright
-          Path('assets').mkdir(exist_ok=True)
-          with sync_playwright() as p:
-              browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-gpu'])
-              page = browser.new_page(viewport={'width':1600,'height':1000}, device_scale_factor=1)
-              page.goto('http://127.0.0.1:8765/', wait_until='networkidle')
-              page.wait_for_function('window.Silicore && Silicore.getState().backend !== "initializing"')
-              page.wait_for_timeout(500)
-              page.screenshot(path='assets/layout.png')
-              for view, filename in [('schematic','schematic'),('rtl','rtl-editor'),('waveform','waveforms')]:
-                  tab = page.locator(f'.work-tabs [data-view="{view}"]')
-                  if tab.count():
-                      tab.click()
-                      page.wait_for_timeout(300)
-                      page.screenshot(path=f'assets/{filename}.png')
-              page.locator('.work-tabs [data-view="layout"]').click()
-              page.set_viewport_size({'width':1280,'height':800})
-              page.wait_for_timeout(300)
-              page.screenshot(path='assets/compact-layout.png')
-              browser.close()
-          PY
+          mkdir -p assets
+          cp test-results/browser/01-layout.png assets/layout.png
+          cp test-results/browser/02-schematic.png assets/schematic.png
+          cp test-results/browser/03-rtl.png assets/rtl-editor.png
+          cp test-results/browser/04-waveforms.png assets/waveforms.png
+          cp test-results/browser/05-compact.png assets/compact-layout.png
       - name: Commit verified initial source and generated artifacts
         if: steps.source.outputs.imported == 'true' && github.event_name != 'pull_request'
         shell: bash
