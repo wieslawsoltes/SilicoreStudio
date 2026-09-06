@@ -1,8 +1,0 @@
-node_modules/
-__pycache__/
-*.pyc
-.DS_Store
-test-results-local/
-
-_site/
-.DS_Store
