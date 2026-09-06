@@ -1,0 +1,96 @@
+{
+  "tests": [
+    {
+      "test": "application boot and retained scene",
+      "passed": true,
+      "backend": "Canvas 2D",
+      "instances": 7112
+    },
+    {
+      "test": "spatial picking, cell drag and transaction undo",
+      "passed": true
+    },
+    {
+      "test": "macro property editing and fixed placement",
+      "passed": true
+    },
+    {
+      "test": "interactive macro creation",
+      "passed": true
+    },
+    {
+      "test": "interactive net creation",
+      "passed": true
+    },
+    {
+      "test": "layer visibility changes render submission",
+      "passed": true
+    },
+    {
+      "test": "world-space measurement",
+      "passed": true
+    },
+    {
+      "test": "schematic signal evaluation and toggling",
+      "passed": true
+    },
+    {
+      "test": "schematic gate editing and HDL regeneration",
+      "passed": true
+    },
+    {
+      "test": "cyclic schematic connection rejected atomically",
+      "passed": true
+    },
+    {
+      "test": "worker-based HDL synthesis and unsigned bus arithmetic",
+      "passed": true
+    },
+    {
+      "test": "unsupported HDL reports diagnostics without corrupting the design",
+      "passed": true
+    },
+    {
+      "test": "worker simulation, trace rendering and cursor controls",
+      "passed": true
+    },
+    {
+      "test": "complete placement/routing/timing/check worker flow",
+      "passed": true,
+      "checks": 6,
+      "wns": 0.43276499999999984
+    },
+    {
+      "test": "actual project download",
+      "passed": true
+    },
+    {
+      "test": "actual project-file import roundtrip",
+      "passed": true
+    },
+    {
+      "test": "invalid imported schema leaves model unchanged",
+      "passed": true
+    },
+    {
+      "test": "command palette search and invocation",
+      "passed": true
+    },
+    {
+      "test": "reference fixture reset",
+      "passed": true
+    },
+    {
+      "test": "compact desktop layout at 1280\u00d7800",
+      "passed": true
+    },
+    {
+      "test": "zero uncaught browser exceptions",
+      "passed": true
+    }
+  ],
+  "passed": 21,
+  "backend": "Canvas 2D",
+  "pageErrors": [],
+  "note": "Inline mode has an opaque origin: localStorage and browser WebGPU are unavailable. No hardware performance claim is made."
+}
