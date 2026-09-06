@@ -1,4 +1,4 @@
-name: Validate and build Silicore Studio
+name: Validate and publish Silicore Studio
 
 on:
   push:
@@ -10,67 +10,35 @@ permissions:
   contents: read
 
 concurrency:
-  group: silicore-build-${{ github.ref }}
+  group: silicore-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Import the initial source transfer
-        id: source
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import hashlib, json, lzma, os
-          from pathlib import Path, PurePosixPath
-          manifest = Path('.bootstrap/manifest.json')
-          imported = False
-          if not Path('package.json').exists() and manifest.exists():
-              meta = json.loads(manifest.read_text())
-              packed = b''.join(Path('.bootstrap', part).read_bytes() for part in meta['parts'])
-              assert len(packed) == meta['size'], 'Transfer size mismatch'
-              assert hashlib.sha256(packed).hexdigest() == meta['sha256'], 'Transfer checksum mismatch'
-              files = json.loads(lzma.decompress(packed))
-              for name, text in files.items():
-                  path = PurePosixPath(name)
-                  assert not path.is_absolute() and '..' not in path.parts and path.parts[0] not in ('.git', '.github'), name
-                  target = Path(name)
-                  target.parent.mkdir(parents=True, exist_ok=True)
-                  target.write_text(text, encoding='utf-8')
-              imported = True
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f"ready={str(Path('package.json').exists()).lower()}\n")
-              output.write(f"imported={str(imported).lower()}\n")
-          PY
       - name: Syntax validation
-        if: steps.source.outputs.ready == 'true'
         run: |
           node --check src/core.js
           node --check src/renderer.js
           node --check src/app.js
           node --check src/worker.js
       - name: Kernel tests
-        if: steps.source.outputs.ready == 'true'
         run: npm test
-      - name: Build standalone app and reference project
-        if: steps.source.outputs.ready == 'true'
-        run: |
-          npm run build
-          node --input-type=module -e "import {writeFileSync} from 'node:fs'; import {createDemo} from './src/core.js'; writeFileSync('examples/aurora.silicore', JSON.stringify(createDemo(), null, 2));"
+      - name: Build standalone application
+        run: npm run build
       - name: Install browser verification tools
-        if: steps.source.outputs.imported == 'true'
         run: |
           python3 -m pip install playwright==1.55.0
           python3 -m playwright install --with-deps chromium
-      - name: Browser checks and workspace screenshots
-        if: steps.source.outputs.imported == 'true'
+      - name: Test the standalone application over HTTP
         shell: bash
         run: |
           python3 -m http.server 8765 --bind 127.0.0.1 > /tmp/silicore-server.log 2>&1 &
@@ -78,26 +46,111 @@ jobs:
           trap 'kill "$SERVER_PID"' EXIT
           for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:8765/ >/dev/null && break || sleep 1; done
           BROWSER=$(python3 -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
-          python3 tests/browser_smoke.py --url http://127.0.0.1:8765 --browser "$BROWSER" --output test-results/browser
-          mkdir -p assets
-          cp test-results/browser/01-layout.png assets/layout.png
-          cp test-results/browser/02-schematic.png assets/schematic.png
-          cp test-results/browser/03-rtl.png assets/rtl-editor.png
-          cp test-results/browser/04-waveforms.png assets/waveforms.png
-          cp test-results/browser/05-compact.png assets/compact-layout.png
-      - name: Commit verified initial source and generated artifacts
-        if: steps.source.outputs.imported == 'true' && github.event_name != 'pull_request'
-        shell: bash
-        run: |
-          rm -rf .bootstrap
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .
-          git commit -m 'Add complete Silicore Studio source, tests, examples and standalone build'
-          git push origin HEAD:main
-      - name: Upload standalone build
-        if: steps.source.outputs.ready == 'true'
+          python3 tests/browser_smoke.py --url http://127.0.0.1:8765/dist/silicore-studio.html --browser "$BROWSER" --output /tmp/silicore-browser
+      - name: Upload browser verification evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: silicore-studio
-          path: dist/silicore-studio.html
+          name: browser-verification
+          path: /tmp/silicore-browser
+          if-no-files-found: ignore
+      - name: Stage the verified website
+        run: |
+          mkdir -p _site
+          cp dist/silicore-studio.html _site/index.html
+          cp LICENSE _site/LICENSE
+          touch _site/.nojekyll
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          site = Path('_site')
+          metadata = {
+              'name': 'Silicore Studio',
+              'repository': os.environ['GITHUB_REPOSITORY'],
+              'sourceCommit': os.environ['GITHUB_SHA'],
+              'sha256': hashlib.sha256((site / 'index.html').read_bytes()).hexdigest()
+          }
+          (site / 'version.json').write_text(json.dumps(metadata, indent=2) + '\n')
+          (site / 'README.md').write_text('# Silicore Studio - GitHub Pages\n\nThis branch contains the verified standalone build from main. See version.json for source provenance.\n\nhttps://wieslawsoltes.github.io/SilicoreStudio/\n')
+          PY
+      - name: Upload the verified website
+        uses: actions/upload-artifact@v4
+        with:
+          name: silicore-site
+          path: _site
+          include-hidden-files: true
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pages: write
+    steps:
+      - name: Check out the publishing branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: deployment
+      - name: Download the verified website
+        uses: actions/download-artifact@v4
+        with:
+          name: silicore-site
+          path: _site
+      - name: Update the publishing branch
+        shell: bash
+        run: |
+          cp _site/index.html _site/LICENSE _site/version.json _site/README.md deployment/
+          touch deployment/.nojekyll
+          cd deployment
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html LICENSE version.json README.md .nojekyll
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish Silicore Studio from ${GITHUB_SHA}"
+            git push origin HEAD:gh-pages
+          fi
+      - name: Request a Pages build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # GITHUB_TOKEN pushes do not trigger Pages automatically; request it explicitly.
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/pages/builds"
+      - name: Verify the live HTTPS deployment and content integrity
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          SITE_URL: https://wieslawsoltes.github.io/SilicoreStudio/
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, time
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          expected = json.loads(Path('_site/version.json').read_text())
+          base = os.environ['SITE_URL']
+          def get(path):
+              request = Request(base + path, headers={'Cache-Control': 'no-cache', 'User-Agent': 'SilicoreStudio-CI'})
+              with urlopen(request, timeout=20) as response:
+                  assert response.status == 200, response.status
+                  return response.read()
+          for attempt in range(60):
+              try:
+                  suffix = '?revision=' + os.environ['SOURCE_SHA'] + '&attempt=' + str(attempt)
+                  version = json.loads(get('version.json' + suffix))
+                  assert version['sourceCommit'] == expected['sourceCommit'], 'An older version is still being served'
+                  page = get(suffix)
+                  assert hashlib.sha256(page).hexdigest() == expected['sha256'], 'Published HTML differs from the tested artifact'
+                  print('LIVE HTTPS VERIFIED:', base)
+                  print('SOURCE COMMIT:', version['sourceCommit'])
+                  print('HTML SHA256:', expected['sha256'])
+                  with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                      summary.write(f"## Published Silicore Studio\n\n[Open the app]({base})\n\nSource: `{version['sourceCommit']}`\n\nLive HTML SHA-256 matches the tested artifact.\n")
+                  break
+              except Exception as error:
+                  print(f'Propagation check {attempt + 1}/60: {error}')
+                  if attempt == 59:
+                      raise
+                  time.sleep(5)
+          PY
